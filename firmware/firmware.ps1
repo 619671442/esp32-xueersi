@@ -11,9 +11,9 @@ switch ($Action.ToLower()) {
         Write-Host "  Xueersi Console - Build Firmware" -ForegroundColor Cyan
         Write-Host "========================================" -ForegroundColor Cyan
         Write-Host ""
-        
+
         & platformio run --project-dir $ProjectDir
-        
+
         if ($LASTEXITCODE -eq 0) {
             Write-Host ""
             Write-Host "[OK] Build success!" -ForegroundColor Green
@@ -30,9 +30,9 @@ switch ($Action.ToLower()) {
         Write-Host "Port: $Port"
         Write-Host "Press RESET if stuck at 'Connecting...'"
         Write-Host ""
-        
+
         & platformio run --project-dir $ProjectDir --target upload --upload-port $Port
-        
+
         if ($LASTEXITCODE -eq 0) {
             Write-Host ""
             Write-Host "[OK] Upload success!" -ForegroundColor Green
