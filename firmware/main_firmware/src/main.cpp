@@ -6,6 +6,7 @@
 #include <BLE2902.h>
 #include <BLEHIDDevice.h>
 #include "nes_emu.h"
+#include "sd_manager.h"
 #include "font_8x16.h"
 
 #define PIN_CS 5
@@ -34,7 +35,7 @@ static void lcd_dat(uint8_t d) { lcd_dat_start(); spi.transfer(d); lcd_dat_end()
 void lcd_init() {
   pinMode(PIN_CS, OUTPUT); digitalWrite(PIN_CS, HIGH);
   pinMode(PIN_DC, OUTPUT); digitalWrite(PIN_DC, HIGH);
-  spi.begin(PIN_SCLK, -1, PIN_MOSI, PIN_CS); spi.setFrequency(40000000);
+  spi.begin(PIN_SCLK, 19, PIN_MOSI, PIN_CS); spi.setFrequency(40000000);
   delay(50);
   lcd_cmd(0x01); delay(5);
   lcd_cmd(0x11); delay(120);
@@ -282,6 +283,7 @@ void enter_app(int i) {
       nes_emu_deinit();
       show_menu();
       break;
+    case 2: in_app = true; app_id = 3; sd_manager_init(); break;
   }
 }
 
@@ -291,11 +293,13 @@ void show_menu() {
   draw_str_center(4, "Select App", WHITE, BLACK);
   draw_menu_item(8, 36, 1, "BT Gamepad", sel == 0);
   draw_menu_item(8, 66, 2, "NES Emulator", sel == 1);
+  draw_menu_item(8, 96, 3, "SD File Manager", sel == 2);
 }
 
 void update_menu_sel() {
   draw_menu_item(8, 36, 1, "BT Gamepad", sel == 0);
   draw_menu_item(8, 66, 2, "NES Emulator", sel == 1);
+  draw_menu_item(8, 96, 3, "SD File Manager", sel == 2);
 }
 
 void setup() {
@@ -322,7 +326,7 @@ void loop() {
       bool a = digitalRead(34) == LOW;
       if (up || dn || a) t = n;
       if (up && sel > 0) { sel--; update_menu_sel(); }
-      if (dn && sel < 1) { sel++; update_menu_sel(); }
+      if (dn && sel < 2) { sel++; update_menu_sel(); }
       if (a) { enter_app(sel); }
     }
   } else {
@@ -332,6 +336,9 @@ void loop() {
     if (app_id == 1 && !deviceConnected && digitalRead(12) == LOW) {
       BLEDevice::deinit(false);
       show_menu();
+    }
+    if (app_id == 3) {
+      sd_manager_loop();
     }
   }
 
