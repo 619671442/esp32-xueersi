@@ -113,11 +113,12 @@ static void drawPopup() {
   fill_rect(px, py, pw, ph, DKGRAY);
   fill_rect(px + 2, py + 2, pw - 4, ph - 4, BLACK);
   const char* items[3] = {"1. Delete", "2. Info", "3. Exit"};
+  int left = px + 6;
   for (int i = 0; i < 3; i++) {
     int yy = py + 6 + i * 16;
     char buf[24];
     snprintf(buf, sizeof(buf), "%s%s", (i == popupSel) ? "*" : " ", items[i]);
-    draw_str_center(yy, buf, (i == popupSel) ? WHITE : GRAY, BLACK);
+    draw_str(left, yy, buf, (i == popupSel) ? WHITE : GRAY, BLACK);
   }
 }
 
@@ -126,11 +127,12 @@ static void drawDeleteConfirm() {
   int px = (160 - pw) / 2, py = (128 - ph) / 2;
   fill_rect(px, py, pw, ph, DKGRAY);
   fill_rect(px + 2, py + 2, pw - 4, ph - 4, BLACK);
+  int left = px + 6;
   if (selection >= 0 && selection < entryCount && entries[selection] != "..") {
     char buf[32];
     snprintf(buf, sizeof(buf), "Delete %s?", entries[selection].c_str());
-    draw_str_center(py + 6, buf, WHITE, BLACK);
-    draw_str_center(py + 22, "A=Yes  B=No", GRAY, BLACK);
+    draw_str(left, py + 6, buf, WHITE, BLACK);
+    draw_str(left, py + 22, "A=Yes  B=No", GRAY, BLACK);
   }
 }
 
