@@ -122,8 +122,11 @@ firmware/main_firmware/src/
 cd firmware
 
 # 编译
-.\build.bat
+.\firmware.ps1 build
 
 # 上传（需先关闭学而思编程助手释放 COM3）
-.\upload.bat
+.\firmware.ps1 upload
+
+# 编译 + 上传
+.\firmware.ps1 all
 ```
