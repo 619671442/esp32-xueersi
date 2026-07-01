@@ -19,9 +19,7 @@
 | 扩展接口 | GPIO 25/26/32/33, SCL/SDA, TX/RX, M1/M2 |
 | SD 卡槽 | SPI 模式，与屏幕同总线 |
 
-## 引脚映射（已确认）
-
-来源：MicroPython REPL + 实测 + SD 卡测试固件扫描
+## 引脚映射
 
 | 功能 | GPIO | 方向 | 备注 |
 |------|------|------|------|
@@ -36,133 +34,87 @@
 | TFT_MOSI | **23** | 输出 | VSPI MOSI（与 SD 共用） |
 | TFT_SCLK | **18** | 输出 | VSPI SCK（与 SD 共用） |
 | TFT_MISO | **19** | 输入 | VSPI MISO（与 SD 共用） |
-| TFT_RST | 无 | — | 依赖上电复位 |
-| TFT_BL | 硬接常亮 | — | 无法 GPIO 控制 |
-| **SD_CS** | **22** | 输出 | ✅ 实测，与 I2C SDA 冲突 ⚠️ |
+| **SD_CS** | **22** | 输出 | 与 I2C SDA 冲突 ⚠️ |
 | BEEP | **14** | PWM 输出 | 蜂鸣器 |
 | LIGHT_SENSOR | **36** | ADC | 光敏 |
 | TEMP_SENSOR | **39** | ADC | 温度 |
 | I2C SCL | **21** | 双向 | MPU-6050 |
-| I2C SDA | **22** | 双向 | MPU-6050（⚠️ 与 SD_CS 复用）|
+| I2C SDA | **22** | 双向 | 与 SD_CS 复用 ⚠️ |
 
-> ⚠️ **GPIO 22 冲突**：SD 卡 CS 与 I2C SDA（MPU-6050）共用同一引脚，两者不可同时使用。如使用 SD 卡需停用 I2C，反之亦然。
+> ⚠️ **GPIO 22 冲突**：SD 卡 CS 与 I2C SDA（MPU-6050）共用同一引脚。
 
-## 当前固件：LVGL 菜单系统
+## 固件架构
 
-### 功能
+### 原生 SPI 驱动（无 LVGL）
 
-- **SELECT APP 菜单** — 三个功能入口（Snake / BtPad / NES）
-- ↑↓ 切换选中（蓝色高亮），**A 确认进入**，**B 返回菜单**
-- LVGL 软件旋转（`LV_DISP_ROT_270`）适配物理屏幕方向
-- 手动 GPIO 读取（不依赖 LVGL indev 驱动）
+移除 LVGL 图形库依赖，直接操作 SPI 刷新屏幕，代码体积小、性能高。
 
-### 添加新功能
-
-在 `main.cpp` 的 `enter_app()` 中添加新的页面即可：
-
-```cpp
-void enter_app(int i) {
-  in_app = true;
-  lv_obj_clean(lv_scr_act());
-  lv_obj_t* page = lv_label_create(lv_scr_act());
-  switch (i) {
-    case 0: lv_label_set_text(page, "Snake Game"); break;
-    case 1: lv_label_set_text(page, "Bluetooth"); break;
-    case 2: lv_label_set_text(page, "NES Emulator"); break;
-    // 新增: case 3: ...
-  }
-  lv_obj_center(page);
-  app_label = page;
-}
-```
-
-并在菜单列表 `names[]` 和按钮创建循环中同步添加。
-
-## SD 卡检测结果
-
-通过 `test_firmware` 扫描固件实测确认：
-
-| 信号 | 引脚 | 备注 |
-|------|------|------|
-| SD_MOSI | **GPIO 23** | 与 TFT_MOSI 共用（VSPI 总线） |
-| SD_MISO | **GPIO 19** | 与 TFT_MISO 共用（VSPI 总线） |
-| SD_SCLK | **GPIO 18** | 与 TFT_SCLK 共用（VSPI 总线） |
-| **SD_CS** | **GPIO 22** | ✅ **实测确认**，与 I2C SDA（MPU-6050）冲突 |
-
-**SPI 总线拓扑：**
+### 模块化结构
 
 ```
-ESP32 VSPI ─┬─ TFT (CS=5, DC=4)
-            └─ SD 卡 (CS=22)
+firmware/main_firmware/src/
+├── main.h              # 全局常量（颜色、引脚定义、WiFi 状态）
+├── main.cpp            # 入口：setup + loop 调度
+├── font_8x16.h         # 8x16 ASCII 字库
+├── input/
+│   ├── input.h
+│   └── input.cpp       # 按键输入处理
+├── lcd/
+│   ├── lcd.h
+│   └── lcd.cpp         # ST7735 SPI 驱动 + 绘图 API
+├── menu/
+│   ├── menu.h
+│   └── menu.cpp        # 菜单系统（MenuItem 结构体数组）
+├── apps/
+│   ├── bt_gamepad.*    # 蓝牙手柄（BLE HID）
+│   ├── wifi_manager.*  # WiFi 连接管理
+│   ├── sd_manager.*    # SD 卡文件浏览器
+│   └── webserver.*     # WebServer 管理页面
+└── webserver/
+    ├── webserver.h
+    └── webserver.cpp   # 网页服务器（SD 管理 + WiFi 密码管理）
 ```
 
-- MOSI/MISO/SCLK 三线共享，通过不同 CS 引脚分时选通
-- 两设备不可同时通信，但切换只需操作 CS 引脚，无需重新初始化 SPI
+### 菜单循环
 
-## NES 模拟器集成方案
+菜单通过 `MenuItem` 结构体数组定义，每个项包含 `label`、`init` 函数指针和 `loop` 函数指针。支持滚动显示（最多 3 项可见，共 4 项）。
 
-### 可行性
+- ↑↓ 循环切换，**A 确认进入**，**B 返回菜单**
+- 右上角 WiFi 状态图标（灰=关闭 / 蓝=热点 / 绿=已连接）
 
-**可以。** 核心思路：SD 卡仅在加载 ROM 时使用，运行时数据全在 PSRAM 中。
+## 应用列表
 
-| 条件 | 状态 |
-|------|------|
-| PSRAM 8MB | ✅ NES ROM 通常 8KB~512KB，完全装得下 |
-| SPI 分时复用 | ✅ SD 与屏幕同总线，CS 不同，切换高效 |
-| ESP32 算力 | ✅ 240MHz 双核，跑 NES 模拟器绰绰有余 |
-| 屏幕分辨率 | ⚠️ 160×128 较低，需裁剪 NES 输出（原始 256×240） |
-| 按键 | ✅ 6 键可直接对应 NES 方向键 + A/B/Select/Start |
-| 开源模拟器 | ✅ 有 ESP32 移植的 NES 模拟器参考（如 `nesemu`、`InfoNES`）|
+### 1. BT Gamepad — 蓝牙手柄
 
-### 推荐架构
+将掌机模拟为 BLE HID 游戏手柄，可连接电脑/手机。
 
-```
-┌─ 用户选择 NES App ──────────────────────────────┐
-│                                                    │
-│  1. 暂停 LVGL 刷屏                                 │
-│  2. TFT_CS(LOW) 拉高 → 释放 SPI 总线               │
-│  3. SPI 降频到 400kHz（SD 初始化需要）               │
-│  4. SD.begin(22) → 挂载 SD 卡                      │
-│  5. 用户选择 .nes 文件（LVGL 文件列表）              │
-│  6. SD 升频到 20MHz → fread ROM 到 PSRAM            │
-│  7. SD.end() → TFT_CS 拉低 → 恢复显示               │
-│  8. SPI 升回 40MHz → 开始模拟                      │
-│  9. NES 模拟器直接从 PSRAM 读取 ROM，输出到屏幕      │
-│                                                    │
-└────────────────────────────────────────────────────┘
-```
+- 方向键 → 键盘方向键（UP/DOWN/LEFT/RIGHT）
+- A/B → 键盘 A/B
+- **LEFT+RIGHT 长按 1 秒**：切换 A/B 键模式（A→Space, B→Enter）
 
-### 实现路线
+### 2. WiFi Manager — WiFi 管理
 
-| 步骤 | 内容 | 依赖 |
-|------|------|------|
-| 1 | 主固件中集成 SD 卡初始化 + 文件列表显示 | 本文 SD 检测结果 |
-| 2 | 移植轻量 NES 模拟器核心到 ESP32（PSRAM 运行） | 开源模拟器 |
-| 3 | 模拟器输出到 160×128 屏幕（缩放/裁剪） | LVGL canvas 或直接 SPI |
-| 4 | 按键映射（↑↓←→A/B → NES 控制器） | 现有按键代码 |
-| 5 | 蜂鸣器音频输出（GPIO 14 PWM） | 可选 |
+- **开启/关闭热点**：ESP32 作为 AP（SSID: ESP32-WIFI）
+- **加入网络**：扫描附近 WiFi，选择并连接（密码通过 WebServer 预先保存）
 
-```
-F:\code\xueersi\
-└── firmware\
-    ├── firmware.ps1           # 主固件编译/上传脚本
-    ├── main_firmware\          # LVGL 菜单固件
-    │   ├── platformio.ini
-    │   ├── lv_conf.h           # LVGL 配置（16位色深）
-    │   └── src\main.cpp        # 全部代码（SPI驱动+LVGL+菜单）
-    ├── test_firmware\          # SD 卡引脚扫描测试固件
-    │   ├── platformio.ini
-    │   └── src\main.cpp        # SD 卡 pin 扫描程序
-    └── test.ps1                # 测试固件编译/上传/串口监视脚本
-```
+### 3. SD File Manager — SD 卡文件浏览器
+
+- 目录浏览（进入/返回上级）
+- 文件列表滚动显示
+- 弹出菜单：删除文件/目录、查看文件详情（名称/类型/大小）、退出
+
+### 4. WebServer — 网页管理
+
+通过浏览器访问 ESP32 的 Web 页面：
+
+- **SD Card Manager**：浏览/上传/下载/删除 SD 卡文件，创建目录
+- **WiFi Password Manager**：保存/忘记 WiFi 密码（用于 WiFi Manager 应用）
 
 ## 开发环境
 
 - **IDE**: VSCode + PlatformIO
 - **框架**: Arduino-ESP32
-- **GUI**: LVGL 8.4.0
 - **屏幕驱动**: 直接 SPI（CS=5, DC=4, MOSI=23, SCLK=18, 40MHz）
-- **LVGL 配置**: 16 位色深, 128x160, `LV_DISP_ROT_270`
 
 ## 使用方式
 

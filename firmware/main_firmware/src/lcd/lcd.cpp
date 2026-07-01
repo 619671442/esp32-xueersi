@@ -110,3 +110,27 @@ void blit_area(int x, int y, const uint16_t* data, int w, int h) {
   for (int i = 0; i < w * h; i++) { spi.transfer(data[i]>>8); spi.transfer(data[i]&0xFF); }
   lcd_dat_end();
 }
+
+static const uint16_t wifi_icon_bits[10] = {
+  0b001111111100,
+  0b111111111111,
+  0b011111111110,
+  0b011111111110,
+  0b001111111100,
+  0b001111111100,
+  0b000111111000,
+  0b000111111000,
+  0b000011110000,
+  0b000001100000,
+};
+
+void draw_wifi_icon(int x, int y, uint16_t color) {
+  uint16_t buf[120];
+  for (int row = 0; row < 10; row++) {
+    uint16_t bits = wifi_icon_bits[row];
+    for (int col = 0; col < 12; col++) {
+      buf[row * 12 + col] = (bits & (0x800 >> col)) ? color : BLACK;
+    }
+  }
+  blit_area(x, y, buf, 12, 10);
+}

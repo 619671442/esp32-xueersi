@@ -4,25 +4,29 @@
 #include "../input/input.h"
 #include "menu.h"
 #include "../apps/bt_gamepad.h"
-#include "../apps/nes_emu.h"
 #include "../apps/sd_manager.h"
-#include "../apps/web_manager.h"
+#include "../apps/webserver_app.h"
+#include "../apps/wifi_manager.h"
 
 int sel = 0;
 int scrollOffset = 0;
 bool in_app = false;
 int app_id = -1;
 
-static const char* itemLabels[MENU_ITEMS] = {
-  "BT Gamepad", "NES Emulator", "SD File Manager", "Web Manager"
+const MenuItem menuItems[] = {
+  { "BT Gamepad",     bt_gamepad_init,   bt_gamepad_loop },
+  { "WiFi Manager",   wifi_manager_init, wifi_manager_loop },
+  { "SD File Manager", sd_manager_init,   sd_manager_loop },
+  { "WebServer",      webserver_init,    webserver_loop },
 };
+const int MENU_ITEMS = sizeof(menuItems) / sizeof(menuItems[0]);
 
 static void drawItem(int idx, int row) {
   int y = 28 + row * 20;
   bool active = (idx == sel);
   fill_rect(0, y, 160, 16, BLACK);
   char buf[24];
-  snprintf(buf, sizeof(buf), "%s%d. %s", active ? "*" : " ", idx + 1, itemLabels[idx]);
+  snprintf(buf, sizeof(buf), "%s%d. %s", active ? "*" : " ", idx + 1, menuItems[idx].label);
   draw_str(8, y, buf, active ? WHITE : GRAY, BLACK);
 }
 
@@ -36,6 +40,7 @@ void show_menu() {
     drawItem(i, i);
   draw_str_center(98, "UP/DN:Sel A:Open", DKGRAY, BLACK);
   draw_str_center(114, "B:Back to menu", DKGRAY, BLACK);
+  draw_wifi_icon(148, 0, wifi_state == WIFI_STATE_STA ? GREEN : (wifi_state == WIFI_STATE_AP ? BLUE : GRAY));
 }
 
 void update_menu_sel() {
@@ -48,16 +53,11 @@ void update_menu_sel() {
 }
 
 void enter_app(int i) {
-  switch (i) {
-    case 0: bt_gamepad_init(); break;
-    case 1:
-      in_app = true; app_id = 2;
-      fill_screen(BLACK);
-      nes_emu_init();
-      nes_emu_deinit();
-      show_menu();
-      break;
-    case 2: in_app = true; app_id = 3; sd_manager_init(); break;
-    case 3: in_app = true; app_id = 4; web_manager_init(); break;
+  in_app = true;
+  app_id = i;
+  fill_screen(BLACK);
+  menuItems[i].init();
+  if (menuItems[i].loop == nullptr) {
+    show_menu();
   }
 }

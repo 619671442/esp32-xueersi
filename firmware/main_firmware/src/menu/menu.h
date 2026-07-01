@@ -1,8 +1,16 @@
 #pragma once
 #include <stdint.h>
 
-#define MENU_ITEMS 4
 #define VISIBLE_ITEMS 3
+
+struct MenuItem {
+  const char* label;
+  void (*init)();
+  void (*loop)();
+};
+
+extern const MenuItem menuItems[];
+extern const int MENU_ITEMS;
 
 extern bool in_app;
 extern int app_id;

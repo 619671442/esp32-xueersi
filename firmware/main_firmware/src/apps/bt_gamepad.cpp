@@ -48,7 +48,6 @@ class BTServerCB : public BLEServerCallbacks {
 };
 
 void bt_gamepad_init() {
-  in_app = true; app_id = 1;
   fill_screen(BLACK);
   draw_str_center(4, "BT Gamepad", WHITE, BLACK);
   draw_str_center(22, "A:A  B:B", GRAY, BLACK);
@@ -140,6 +139,12 @@ void bt_gamepad_loop() {
     strcpy(btn_display, buf);
     fill_rect(0, 96, 160, 32, BLACK);
     if (buf[0]) draw_str_center(100, buf, WHITE, BLACK);
+  }
+
+  if (!deviceConnected && digitalRead(12) == LOW) {
+    BLEDevice::deinit(false);
+    show_menu();
+    return;
   }
 }
 

@@ -1,12 +1,11 @@
 #include <Arduino.h>
-#include <BLEDevice.h>
+#include <WiFi.h>
 #include "main.h"
 #include "lcd/lcd.h"
 #include "input/input.h"
 #include "menu/menu.h"
-#include "apps/bt_gamepad.h"
-#include "apps/sd_manager.h"
-#include "apps/web_manager.h"
+
+int wifi_state = WIFI_STATE_OFF;
 
 void setup() {
   Serial.begin(115200); delay(1000);
@@ -22,6 +21,7 @@ void setup() {
 
 void loop() {
   static unsigned long t = 0;
+  static unsigned long icon_t = 0;
   unsigned long n = millis();
 
   if (!in_app) {
@@ -30,24 +30,31 @@ void loop() {
       bool dn = digitalRead(13) == LOW;
       bool a = digitalRead(34) == LOW;
       if (up || dn || a) t = n;
-      if (up && sel > 0) { sel--; update_menu_sel(); }
-      if (dn && sel < MENU_ITEMS - 1) { sel++; update_menu_sel(); }
+      if (up) { sel = (sel - 1 + MENU_ITEMS) % MENU_ITEMS; update_menu_sel(); }
+      if (dn) { sel = (sel + 1) % MENU_ITEMS; update_menu_sel(); }
       if (a) { enter_app(sel); }
     }
-  } else {
-    if (app_id == 1 && n - t > 50) {
-      t = n; bt_gamepad_loop();
+  } else if (app_id >= 0 && app_id < MENU_ITEMS && menuItems[app_id].loop != nullptr) {
+    if (n - t > 50) {
+      t = n;
+      menuItems[app_id].loop();
     }
-    if (app_id == 1 && !bt_gamepad_is_connected() && digitalRead(12) == LOW) {
-      BLEDevice::deinit(false);
-      show_menu();
+  }
+
+  if (n - icon_t > 500) {
+    icon_t = n;
+    uint16_t iconColor;
+    if (WiFi.status() == WL_CONNECTED) {
+      wifi_state = WIFI_STATE_STA;
+      iconColor = GREEN;
+    } else if (WiFi.getMode() == WIFI_MODE_AP || WiFi.getMode() == WIFI_MODE_APSTA) {
+      wifi_state = WIFI_STATE_AP;
+      iconColor = BLUE;
+    } else {
+      wifi_state = WIFI_STATE_OFF;
+      iconColor = GRAY;
     }
-    if (app_id == 3) {
-      sd_manager_loop();
-    }
-    if (app_id == 4) {
-      web_manager_loop();
-    }
+    draw_wifi_icon(148, 0, iconColor);
   }
 
   delay(5);

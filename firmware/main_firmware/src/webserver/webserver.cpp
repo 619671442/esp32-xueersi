@@ -6,21 +6,10 @@
 #include <SPI.h>
 #include "../main.h"
 #include "../lcd/lcd.h"
-#include "../input/input.h"
-#include "../menu/menu.h"
-#include "web_manager.h"
+#include "webserver.h"
 
 static WebServer server(80);
 static Preferences prefs;
-
-static int scannedCount = 0;
-static String scannedSSIDs[50];
-static int8_t scannedRSSI[50];
-static uint8_t scannedEnc[50];
-
-static unsigned long lastClientUpdate = 0;
-static int lastClientCount = -1;
-
 static File uploadFile;
 
 static const char* PAGE_HEAD = "<!DOCTYPE html><html><head><meta charset='UTF-8'><meta name='viewport' content='width=device-width,initial-scale=1'>"
@@ -30,8 +19,6 @@ static const char* PAGE_HEAD = "<!DOCTYPE html><html><head><meta charset='UTF-8'
   ".saved{color:#0a0}.del{color:#f44;font-size:12px}.bar{background:#444;height:10px;border-radius:5px;display:inline-block;vertical-align:middle}</style></head><body>";
 
 static const char* PAGE_FOOT = "<hr><a href='/'>Home</a> <a href='/sd'>SD Card</a> <a href='/wifi'>WiFi</a></body></html>";
-
-// ─── SD helpers ────────────────────────────────────────────────────
 
 static bool sdOk() {
   if (!SD.cardSize()) {
@@ -49,14 +36,20 @@ static String sizeStr(uint64_t bytes) {
   return String(bytes / (1024 * 1024)) + " MB";
 }
 
-// ─── Web handlers ──────────────────────────────────────────────────
-
 static void handleRoot() {
   String html = PAGE_HEAD;
-  html += "<h2>ESP32 Web Manager</h2>";
-  html += "<p><b>AP:</b> ESP32-WIFI</p>";
-  html += "<p><b>IP:</b> " + WiFi.softAPIP().toString() + "</p>";
-  html += "<p><b>Clients:</b> " + String(WiFi.softAPgetStationNum()) + "</p>";
+  html += "<h2>ESP32 WebServer</h2>";
+  wifi_mode_t mode = WiFi.getMode();
+  if (mode == WIFI_MODE_AP || mode == WIFI_MODE_APSTA) {
+    html += "<p><b>Mode:</b> Hotspot</p>";
+    html += "<p><b>AP:</b> ESP32-WIFI</p>";
+    html += "<p><b>IP:</b> " + WiFi.softAPIP().toString() + "</p>";
+    html += "<p><b>Clients:</b> " + String(WiFi.softAPgetStationNum()) + "</p>";
+  } else {
+    html += "<p><b>Mode:</b> Station</p>";
+    html += "<p><b>Connected to:</b> " + WiFi.SSID() + "</p>";
+    html += "<p><b>IP:</b> " + WiFi.localIP().toString() + "</p>";
+  }
   html += "<hr><ul>";
   html += "<li><a href='/sd'>SD Card Manager</a></li>";
   html += "<li><a href='/wifi'>WiFi Password Manager</a></li>";
@@ -205,40 +198,17 @@ static void handleMkdir() {
   server.send(303);
 }
 
-// ─── WiFi handlers ─────────────────────────────────────────────────
-
 static void handleWiFi() {
   String html = PAGE_HEAD;
   html += "<h2>WiFi Password Manager</h2>";
   html += "<form action='/wifi_save' method='post'>";
-  html += "<table style='width:100%'>";
-  html += "<tr><th>SSID</th><th>Signal</th><th>Password</th></tr>";
-
-  prefs.begin("wifi_pwd", false);
-
-  for (int i = 0; i < scannedCount; i++) {
-    String ssid = scannedSSIDs[i];
-    String savedPwd = prefs.getString(ssid.c_str(), "");
-
-    int sig = constrain(128 + scannedRSSI[i], 0, 100);
-    int barW = map(sig, 0, 100, 5, 60);
-
-    html += "<tr><td>" + ssid + "</td>";
-    if (scannedEnc[i] == 0) {
-      html += "<td><span class='bar' style='width:" + String(barW) + "px'></span></td>";
-      html += "<td><i>Open</i></td>";
-    } else {
-      html += "<td><span class='bar' style='width:" + String(barW) + "px'></span></td>";
-      html += "<td><input type='password' name='pwd_" + ssid + "' value='" + savedPwd + "'></td>";
-    }
-    if (savedPwd.length() > 0 && scannedEnc[i] != 0)
-      html += "<td class='saved'>&#10003;</td>";
-    html += "</tr>";
-  }
-
-  html += "</table><br><button type='submit'>Save Passwords</button></form>";
+  html += "<p><b>Add Network</b></p>";
+  html += "<p>SSID: <input type='text' name='ssid' required></p>";
+  html += "<p>Password: <input type='password' name='pwd' required></p>";
+  html += "<button type='submit'>Save</button></form>";
 
   html += "<h3>Saved Networks</h3><ul>";
+  prefs.begin("wifi_pwd", false);
   String savedList = prefs.getString("saved_list", "");
   if (savedList.length() > 0) {
     int start = 0;
@@ -256,31 +226,30 @@ static void handleWiFi() {
       start = comma + 1;
     }
   }
+  prefs.end();
   html += "</ul>";
 
-  prefs.end();
   html += PAGE_FOOT;
   server.send(200, "text/html", html);
 }
 
 static void handleWiFiSave() {
-  prefs.begin("wifi_pwd", false);
-
-  String savedList;
-
-  for (int i = 0; i < scannedCount; i++) {
-    String ssid = scannedSSIDs[i];
-    String val = server.arg("pwd_" + ssid);
-    if (val.length() > 0) {
-      prefs.putString(ssid.c_str(), val);
-      if (savedList.length() > 0) savedList += ",";
-      savedList += ssid;
-    }
+  String ssid = server.arg("ssid");
+  String pwd = server.arg("pwd");
+  if (ssid.length() == 0 || pwd.length() == 0) {
+    server.sendHeader("Location", "/wifi");
+    server.send(303);
+    return;
   }
-
-  prefs.putString("saved_list", savedList);
+  prefs.begin("wifi_pwd", false);
+  prefs.putString(ssid.c_str(), pwd);
+  String savedList = prefs.getString("saved_list", "");
+  if (savedList.indexOf(ssid) < 0) {
+    if (savedList.length() > 0) savedList += ",";
+    savedList += ssid;
+    prefs.putString("saved_list", savedList);
+  }
   prefs.end();
-
   server.sendHeader("Location", "/wifi");
   server.send(303);
 }
@@ -311,61 +280,7 @@ static void handleWiFiForget() {
   server.send(303);
 }
 
-// ─── Display helpers ───────────────────────────────────────────────
-
-static void drawStatus() {
-  fill_screen(BLACK);
-  draw_str_center(0, "Web Manager", WHITE, BLACK);
-  draw_str(0, 20, "SSID: ESP32-WIFI", WHITE, BLACK);
-  char buf[32];
-  snprintf(buf, sizeof(buf), "IP: %s", WiFi.softAPIP().toString().c_str());
-  draw_str(0, 36, buf, GRAY, BLACK);
-  snprintf(buf, sizeof(buf), "Scanned: %d APs", scannedCount);
-  draw_str(0, 52, buf, GRAY, BLACK);
-  draw_str(0, 84, "Open browser to", GRAY, BLACK);
-  draw_str_center(100, WiFi.softAPIP().toString().c_str(), WHITE, BLACK);
-}
-
-static void updateClients() {
-  int n = WiFi.softAPgetStationNum();
-  if (n != lastClientCount) {
-    lastClientCount = n;
-    char buf[32];
-    fill_rect(0, 68, 160, 16, BLACK);
-    snprintf(buf, sizeof(buf), "Clients: %d", n);
-    draw_str(0, 68, buf, GRAY, BLACK);
-  }
-}
-
-// ─── Public API ────────────────────────────────────────────────────
-
-void web_manager_init() {
-  in_app = true; app_id = 4;
-
-  fill_screen(BLACK);
-  draw_str_center(40, "Scanning WiFi...", WHITE, BLACK);
-
-  WiFi.mode(WIFI_STA);
-  WiFi.disconnect();
-  delay(100);
-
-  scannedCount = WiFi.scanNetworks();
-  if (scannedCount < 0) scannedCount = 0;
-  if (scannedCount > 50) scannedCount = 50;
-
-  for (int i = 0; i < scannedCount; i++) {
-    scannedSSIDs[i] = WiFi.SSID(i);
-    scannedRSSI[i] = WiFi.RSSI(i);
-    scannedEnc[i] = WiFi.encryptionType(i);
-  }
-
-  draw_str_center(64, "Starting AP...", WHITE, BLACK);
-
-  WiFi.mode(WIFI_AP_STA);
-  WiFi.softAP("ESP32-WIFI");
-
-  delay(500);
-
+void ws_init() {
   server.on("/", handleRoot);
   server.on("/sd", handleSD);
   server.on("/download", handleDownload);
@@ -375,36 +290,14 @@ void web_manager_init() {
   server.on("/wifi", handleWiFi);
   server.on("/wifi_save", HTTP_POST, handleWiFiSave);
   server.on("/wifi_forget", handleWiFiForget);
-
   server.begin();
-
-  lastClientCount = -1;
-  lastClientUpdate = 0;
-
-  drawStatus();
 }
 
-void web_manager_loop() {
+void ws_handle_client() {
   server.handleClient();
-
-  unsigned long n = millis();
-  if (n - lastClientUpdate > 2000) {
-    lastClientUpdate = n;
-    updateClients();
-  }
-
-  if (digitalRead(12) == LOW) {
-    delay(200);
-    if (digitalRead(12) == LOW) {
-      web_manager_deinit();
-      show_menu();
-    }
-  }
 }
 
-void web_manager_deinit() {
+void ws_stop() {
   server.stop();
-  WiFi.softAPdisconnect(true);
-  WiFi.mode(WIFI_OFF);
-  if (uploadFile) uploadFile.close();
+  if (uploadFile) { uploadFile.close(); uploadFile = File(); }
 }
