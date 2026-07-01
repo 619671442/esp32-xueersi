@@ -3,10 +3,10 @@
 #include <SPIFFS.h>
 #include "nes_emu.h"
 #include "rom_data.h"
+#include "esp_task_wdt.h"
 
 extern SPIClass spi;
 extern "C" {
-#undef NOFRENDO_DEBUG
 extern volatile int nofrendo_ticks;
 #include "nofrendo.h"
 #include "nes/nes.h"
@@ -29,9 +29,12 @@ static void lcd_cmd(uint8_t c) {
 static void lcd_dat_start() { digitalWrite(PIN_DC, HIGH); digitalWrite(PIN_CS, LOW); }
 static void lcd_dat_end() { digitalWrite(PIN_CS, HIGH); }
 
+#define COL_OFF 0
+#define ROW_OFF 0
+
 static void lcd_set_win(int x1, int y1, int x2, int y2) {
-  lcd_cmd(0x2A); lcd_dat_start(); spi.transfer(x1>>8); spi.transfer(x1&0xFF); spi.transfer(x2>>8); spi.transfer(x2&0xFF); lcd_dat_end();
-  lcd_cmd(0x2B); lcd_dat_start(); spi.transfer(y1>>8); spi.transfer(y1&0xFF); spi.transfer(y2>>8); spi.transfer(y2&0xFF); lcd_dat_end();
+  lcd_cmd(0x2A); lcd_dat_start(); spi.transfer((y1+ROW_OFF)>>8); spi.transfer((y1+ROW_OFF)&0xFF); spi.transfer((y2+ROW_OFF)>>8); spi.transfer((y2+ROW_OFF)&0xFF); lcd_dat_end();
+  lcd_cmd(0x2B); lcd_dat_start(); spi.transfer((x1+COL_OFF)>>8); spi.transfer((x1+COL_OFF)&0xFF); spi.transfer((x2+COL_OFF)>>8); spi.transfer((x2+COL_OFF)&0xFF); lcd_dat_end();
   lcd_cmd(0x2C); lcd_dat_start();
 }
 
@@ -41,7 +44,7 @@ static uint16_t* fb = NULL;
 #define FB_H 240
 
 int my_vid_init(int w, int h) {
-  fb = (uint16_t*)ps_malloc(FB_W * FB_H * 2);
+  fb = (uint16_t*)malloc(FB_W * FB_H * 2);
   return fb ? 0 : -1;
 }
 void my_vid_shutdown() { free(fb); fb = NULL; }
@@ -78,6 +81,7 @@ void my_custom_blit(bitmap_t* bm, int n, rect_t* r) {
     }
   }
   lcd_dat_end();
+  esp_task_wdt_reset();
 }
 
 static viddriver_t vd = {
@@ -115,6 +119,8 @@ void osd_getinput() {
   if (digitalRead(35) == LOW) d |= INP_PAD_RIGHT;
   if (digitalRead(34) == LOW) d |= INP_PAD_A;
   my_input.data = d;
+
+  esp_task_wdt_reset();
 }
 
 void osd_getmouse(int* x, int* y, int* b) { *x = *y = *b = 0; }
@@ -151,10 +157,7 @@ void nes_emu_init() {
   input_register(&my_input);
   Serial.println("OK");
 
-  extern bool mem_debug;
-
   Serial.print("[NES] nes_create... ");
-  mem_debug = false;
   nes_t* nes = nes_create();
   if (!nes) { Serial.println("FAIL"); return; }
   Serial.println("OK");

@@ -1,12 +1,12 @@
 #include <Arduino.h>
 #include <SPI.h>
-#include <lvgl.h>
 #include <BLEDevice.h>
 #include <BLEUtils.h>
 #include <BLEServer.h>
 #include <BLE2902.h>
 #include <BLEHIDDevice.h>
 #include "nes_emu.h"
+#include "font_8x16.h"
 
 #define PIN_CS 5
 #define PIN_DC 4
@@ -15,78 +15,144 @@
 
 SPIClass spi(VSPI);
 
-static void cmd(uint8_t c) {
+#define BLACK   0x0000
+#define WHITE   0xFFFF
+#define BLUE    0x001F
+#define DARKBL  0x0044AA
+#define GRAY    0x8410
+#define DKGRAY  0x39E7
+#define SEL_BG  0x0044AA
+#define BTN_BG  0x333333
+
+static void lcd_cmd(uint8_t c) {
   digitalWrite(PIN_DC, LOW); digitalWrite(PIN_CS, LOW); spi.transfer(c); digitalWrite(PIN_CS, HIGH);
 }
-static void dat(uint8_t d) {
-  digitalWrite(PIN_DC, HIGH); digitalWrite(PIN_CS, LOW); spi.transfer(d); digitalWrite(PIN_CS, HIGH);
-}
+static void lcd_dat_start() { digitalWrite(PIN_DC, HIGH); digitalWrite(PIN_CS, LOW); }
+static void lcd_dat_end() { digitalWrite(PIN_CS, HIGH); }
+static void lcd_dat(uint8_t d) { lcd_dat_start(); spi.transfer(d); lcd_dat_end(); }
 
 void lcd_init() {
   pinMode(PIN_CS, OUTPUT); digitalWrite(PIN_CS, HIGH);
   pinMode(PIN_DC, OUTPUT); digitalWrite(PIN_DC, HIGH);
   spi.begin(PIN_SCLK, -1, PIN_MOSI, PIN_CS); spi.setFrequency(40000000);
   delay(50);
-  cmd(0x01); delay(5);
-  cmd(0x11); delay(120);
-  cmd(0xB1); dat(0x05); dat(0x3A); dat(0x3A);
-  cmd(0xB2); dat(0x05); dat(0x3A); dat(0x3A);
-  cmd(0xB3); dat(0x05); dat(0x3A); dat(0x3A); dat(0x05); dat(0x3A); dat(0x3A);
-  cmd(0xB4); dat(0x03);
-  cmd(0xC0); dat(0x62); dat(0x02); dat(0x04);
-  cmd(0xC1); dat(0x00);
-  cmd(0xC2); dat(0x0C); dat(0x00);
-  cmd(0xC3); dat(0x8D); dat(0x6A);
-  cmd(0xC4); dat(0x8D); dat(0xEE);
-  cmd(0xC5); dat(0x0E);
-  cmd(0x36); dat(0x00);
-  cmd(0x3A); dat(0x05);
-  cmd(0x29); delay(10);
+  lcd_cmd(0x01); delay(5);
+  lcd_cmd(0x11); delay(120);
+  lcd_cmd(0xB1); lcd_dat(0x05); lcd_dat(0x3A); lcd_dat(0x3A);
+  lcd_cmd(0xB2); lcd_dat(0x05); lcd_dat(0x3A); lcd_dat(0x3A);
+  lcd_cmd(0xB3); lcd_dat(0x05); lcd_dat(0x3A); lcd_dat(0x3A); lcd_dat(0x05); lcd_dat(0x3A); lcd_dat(0x3A);
+  lcd_cmd(0xB4); lcd_dat(0x03);
+  lcd_cmd(0xC0); lcd_dat(0x62); lcd_dat(0x02); lcd_dat(0x04);
+  lcd_cmd(0xC1); lcd_dat(0x00);
+  lcd_cmd(0xC2); lcd_dat(0x0C); lcd_dat(0x00);
+  lcd_cmd(0xC3); lcd_dat(0x8D); lcd_dat(0x6A);
+  lcd_cmd(0xC4); lcd_dat(0x8D); lcd_dat(0xEE);
+  lcd_cmd(0xC5); lcd_dat(0x0E);
+  lcd_cmd(0x36); lcd_dat(0x40);
+  lcd_cmd(0x3A); lcd_dat(0x05);
+  lcd_cmd(0x29); delay(10);
 }
 
-void fill(uint16_t c) {
-  digitalWrite(PIN_DC, LOW); digitalWrite(PIN_CS, LOW); spi.transfer(0x2A); digitalWrite(PIN_CS, HIGH);
-  digitalWrite(PIN_DC, HIGH); digitalWrite(PIN_CS, LOW); spi.transfer(0); spi.transfer(0); spi.transfer(0); spi.transfer(127); digitalWrite(PIN_CS, HIGH);
-  digitalWrite(PIN_DC, LOW); digitalWrite(PIN_CS, LOW); spi.transfer(0x2B); digitalWrite(PIN_CS, HIGH);
-  digitalWrite(PIN_DC, HIGH); digitalWrite(PIN_CS, LOW); spi.transfer(0); spi.transfer(0); spi.transfer(0); spi.transfer(159); digitalWrite(PIN_CS, HIGH);
-  digitalWrite(PIN_DC, LOW); digitalWrite(PIN_CS, LOW); spi.transfer(0x2C); digitalWrite(PIN_CS, HIGH);
-  digitalWrite(PIN_DC, HIGH);
-  for(int i=0;i<20480;i++){digitalWrite(PIN_CS,LOW);spi.transfer(c>>8);spi.transfer(c&0xFF);digitalWrite(PIN_CS,HIGH);}
+#define COL_OFF 0
+#define ROW_OFF 0
+
+void lcd_set_win(int x1, int y1, int x2, int y2) {
+  lcd_cmd(0x2A); lcd_dat_start(); spi.transfer((y1+ROW_OFF)>>8); spi.transfer((y1+ROW_OFF)&0xFF); spi.transfer((y2+ROW_OFF)>>8); spi.transfer((y2+ROW_OFF)&0xFF); lcd_dat_end();
+  lcd_cmd(0x2B); lcd_dat_start(); spi.transfer((x1+COL_OFF)>>8); spi.transfer((x1+COL_OFF)&0xFF); spi.transfer((x2+COL_OFF)>>8); spi.transfer((x2+COL_OFF)&0xFF); lcd_dat_end();
+  lcd_cmd(0x2C); lcd_dat_start();
 }
 
-static lv_color_t buf[128*20];
-static lv_disp_draw_buf_t db;
-static lv_disp_drv_t drv;
-
-void flush(lv_disp_drv_t* d, const lv_area_t* a, lv_color_t* p) {
-  int w=a->x2-a->x1+1, h=a->y2-a->y1+1;
-  digitalWrite(PIN_DC, LOW); digitalWrite(PIN_CS, LOW); spi.transfer(0x2A); digitalWrite(PIN_CS, HIGH);
-  digitalWrite(PIN_DC, HIGH); digitalWrite(PIN_CS, LOW); spi.transfer(a->x1>>8);spi.transfer(a->x1&0xFF);spi.transfer(a->x2>>8);spi.transfer(a->x2&0xFF); digitalWrite(PIN_CS, HIGH);
-  digitalWrite(PIN_DC, LOW); digitalWrite(PIN_CS, LOW); spi.transfer(0x2B); digitalWrite(PIN_CS, HIGH);
-  digitalWrite(PIN_DC, HIGH); digitalWrite(PIN_CS, LOW); spi.transfer(a->y1>>8);spi.transfer(a->y1&0xFF);spi.transfer(a->y2>>8);spi.transfer(a->y2&0xFF); digitalWrite(PIN_CS, HIGH);
-  digitalWrite(PIN_DC, LOW); digitalWrite(PIN_CS, LOW); spi.transfer(0x2C); digitalWrite(PIN_CS, HIGH);
-  digitalWrite(PIN_DC, HIGH);
-  for(int y=0;y<h;y++)for(int x=0;x<w;x++){digitalWrite(PIN_CS,LOW);spi.transfer(p[y*w+x].full>>8);spi.transfer(p[y*w+x].full&0xFF);digitalWrite(PIN_CS,HIGH);}
-  lv_disp_flush_ready(d);
+void fill_screen(uint16_t c) {
+  // Fill all 160 physical columns × 128 physical rows
+  lcd_cmd(0x2A); lcd_dat_start(); spi.transfer(0>>8); spi.transfer(0&0xFF); spi.transfer(127>>8); spi.transfer(127&0xFF); lcd_dat_end();
+  lcd_cmd(0x2B); lcd_dat_start(); spi.transfer(0>>8); spi.transfer(0&0xFF); spi.transfer(159>>8); spi.transfer(159&0xFF); lcd_dat_end();
+  lcd_cmd(0x2C); lcd_dat_start();
+  for (int i = 0; i < 20480; i++) { spi.transfer(c>>8); spi.transfer(c&0xFF); }
+  lcd_dat_end();
 }
 
+void fill_rect(int x, int y, int w, int h, uint16_t c) {
+  if (x < 0) { w += x; x = 0; } if (y < 0) { h += y; y = 0; }
+  if (x + w > 160) w = 160 - x; if (y + h > 128) h = 128 - y;
+  if (w <= 0 || h <= 0) return;
+  lcd_set_win(x, y, x + w - 1, y + h - 1);
+  for (int i = 0; i < w * h; i++) { spi.transfer(c>>8); spi.transfer(c&0xFF); }
+  lcd_dat_end();
+}
+
+void draw_pixel(int x, int y, uint16_t c) {
+  if (x < 0 || x >= 160 || y < 0 || y >= 128) return;
+  lcd_set_win(x, y, x, y);
+  spi.transfer(c>>8); spi.transfer(c&0xFF);
+  lcd_dat_end();
+}
+
+void draw_char(int x, int y, unsigned char ch, uint16_t fg, uint16_t bg) {
+  if (ch < 0x20 || ch > 0x7E) return;
+  int idx = ch - 0x20;
+  for (int row = 0; row < 16; row++) {
+    uint8_t bits = font8x16[idx][row];
+    int yy = y + row;
+    if (yy < 0 || yy >= 128) continue;
+    lcd_set_win(x, yy, x + 7, yy);
+    for (int col = 0; col < 8; col++) {
+      uint16_t c = (bits & (1 << (7 - col))) ? fg : bg;
+      spi.transfer(c>>8); spi.transfer(c&0xFF);
+    }
+    lcd_dat_end();
+  }
+}
+
+void draw_str(int x, int y, const char* s, uint16_t fg, uint16_t bg) {
+  while (*s) {
+    if (x + 8 > 160) break;
+    draw_char(x, y, *s, fg, bg);
+    x += 8; s++;
+  }
+}
+
+void draw_str_center(int y, const char* s, uint16_t fg, uint16_t bg) {
+  int len = 0; const char* p = s; while (*p) { len++; p++; }
+  int x = (160 - len * 8) / 2;
+  if (x < 0) x = 0;
+  draw_str(x, y, s, fg, bg);
+}
+
+void draw_menu_item(int x, int y, int num, const char* label, bool sel) {
+  char buf[32];
+  sprintf(buf, "%s%d. %s", sel ? "*" : " ", num, label);
+  draw_str(x, y, buf, sel ? WHITE : GRAY, BLACK);
+}
+
+void blit_area(int x, int y, const uint16_t* data, int w, int h) {
+  lcd_set_win(x, y, x + w - 1, y + h - 1);
+  for (int i = 0; i < w * h; i++) { spi.transfer(data[i]>>8); spi.transfer(data[i]&0xFF); }
+  lcd_dat_end();
+}
+
+// Menu / App state
 static int sel = 0;
 static bool in_app = false;
 static int app_id = -1;
 
+// BT gamepad globals
 static BLEHIDDevice* hid = NULL;
 static BLECharacteristic* input = NULL;
 static volatile bool deviceConnected = false;
 
 static const int btn_pins[6] = {2, 13, 27, 35, 34, 12};
-static const char* btn_names[6] = {"UP", "DOWN", "LEFT", "RIGHT", "A", "B"};
-static bool btn_prev[6] = {false};
 static int btn_mode[6] = {0};
-static lv_obj_t* bt_status_label = NULL;
-static lv_obj_t* bt_btn_label = NULL;
-static lv_obj_t* bt_mode_label = NULL;
+static unsigned long long_press[6] = {0};
+static bool last_btn[6] = {0};
+static char btn_display[64] = "";
+static bool bt_connected = false;
 
-static const uint8_t btn_keycodes[6] = {0x52, 0x51, 0x50, 0x4F, 0x04, 0x05};
+#define BIT_A     0
+#define BIT_B     1
+#define BIT_UP    2
+#define BIT_DOWN  3
+#define BIT_LEFT  4
+#define BIT_RIGHT 5
 
 static const uint8_t hidReportDescriptor[] = {
   0x05, 0x01, 0x09, 0x06, 0xA1, 0x01,
@@ -109,31 +175,17 @@ class BTServerCB : public BLEServerCallbacks {
 };
 
 void show_menu();
-void update_menu_sel();
 
 void bt_gamepad_init() {
-  in_app = true;
-  app_id = 1;
-  lv_obj_clean(lv_scr_act());
+  in_app = true; app_id = 1;
+  fill_screen(BLACK);
+  draw_str_center(4, "BT Gamepad", WHITE, BLACK);
+  draw_str_center(22, "A:A  B:B", GRAY, BLACK);
+  draw_str_center(38, "Status: Waiting...", GRAY, BLACK);
+  btn_display[0] = 0;
 
-  lv_obj_t* title = lv_label_create(lv_scr_act());
-  lv_label_set_text(title, "BT Gamepad");
-  lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 4);
-
-  bt_status_label = lv_label_create(lv_scr_act());
-  lv_label_set_text(bt_status_label, "Status: Waiting...");
-  lv_obj_align(bt_status_label, LV_ALIGN_TOP_MID, 0, 38);
-
-  bt_mode_label = lv_label_create(lv_scr_act());
-  lv_label_set_text(bt_mode_label, "A:A  B:B");
-  lv_obj_align(bt_mode_label, LV_ALIGN_TOP_MID, 0, 22);
-
-  bt_btn_label = lv_label_create(lv_scr_act());
-  lv_label_set_text(bt_btn_label, "");
-  lv_obj_align(bt_btn_label, LV_ALIGN_BOTTOM_MID, 0, -10);
-
-  for (int i = 0; i < 6; i++) { btn_prev[i] = false; btn_mode[i] = 0; }
-  deviceConnected = false;
+  for (int i = 0; i < 6; i++) { last_btn[i] = false; long_press[i] = 0; }
+  btn_mode[4] = 0; btn_mode[5] = 0;
 
   BLEDevice::init("Xueersi Gamepad");
   BLEServer* srv = BLEDevice::createServer();
@@ -153,134 +205,97 @@ void bt_gamepad_init() {
 }
 
 void bt_gamepad_loop() {
-  static bool lastConnected = false;
-  if (deviceConnected != lastConnected) {
-    lastConnected = deviceConnected;
-    lv_label_set_text(bt_status_label, deviceConnected ? "Status: Running" : "Status: Waiting...");
-    if (!deviceConnected) lv_label_set_text(bt_btn_label, "");
+  if (deviceConnected != bt_connected) {
+    bt_connected = deviceConnected;
+    fill_rect(0, 38, 160, 16, BLACK);
+    draw_str_center(38, deviceConnected ? "Status: Running" : "Status: Waiting...", GRAY, BLACK);
+    if (!deviceConnected) { fill_rect(0, 96, 160, 32, BLACK); btn_display[0] = 0; }
   }
 
-  static int combo_cnt = 0;
-  static int swapStep = 0;
-  static uint8_t prevReport[8] = {0};
-
-  if (swapStep == 1) {
-    uint8_t empty[8] = {0};
-    if (deviceConnected) {
-      input->setValue(empty, 8);
-      input->notify();
-    }
-    memcpy(prevReport, empty, 8);
-    swapStep = 2;
-    return;
+  int combo = 0;
+  for (int i = 0; i < 6; i++) {
+    bool curr = (digitalRead(btn_pins[i]) == LOW);
+    if (curr && !last_btn[i]) long_press[i] = millis();
+    if (!curr) long_press[i] = 0;
+    last_btn[i] = curr;
+    if (curr) combo++;
   }
 
-  bool left = digitalRead(27) == LOW;
-  bool right = digitalRead(35) == LOW;
-  if (left && right) {
-    combo_cnt++;
-    if (combo_cnt == 20) {
-      btn_mode[4] = !btn_mode[4];
-      btn_mode[5] = !btn_mode[5];
-      lv_label_set_text(bt_mode_label, btn_mode[4] ? "A:Space B:Enter" : "A:A  B:B");
+  if (combo >= 2) {
+    bool both_sides = (digitalRead(27) == LOW && digitalRead(35) == LOW);
+    if (both_sides && long_press[2] > 0 && millis() - long_press[2] >= 1000) {
+      btn_mode[4] = !btn_mode[4]; btn_mode[5] = !btn_mode[5];
+      long_press[2] = 0; long_press[3] = 0;
+      fill_rect(0, 22, 160, 16, BLACK);
+      draw_str_center(22, btn_mode[4] ? "A:Space B:Enter" : "A:A  B:B", GRAY, BLACK);
+      return;
     }
-  } else {
-    combo_cnt = 0;
   }
 
   uint8_t report[8] = {0};
-  char buf[64] = "";
-  int idx = 2;
+  char buf[64] = ""; int idx = 2;
+  static const uint8_t kc[6] = {0x52, 0x51, 0x50, 0x4F, 0x04, 0x05};
+  static const uint8_t kc_alt[2] = {0x2C, 0x28};
+  static const char* btn_labels[6] = {"UP", "DOWN", "LEFT", "RIGHT", "A", "B"};
+  static const char* btn_labels_alt[6] = {"UP", "DOWN", "LEFT", "RIGHT", "Space", "Enter"};
 
   for (int i = 0; i < 6; i++) {
-    bool curr = (digitalRead(btn_pins[i]) == LOW);
-    if (!curr) continue;
-
-    uint8_t kc = btn_keycodes[i];
-    const char* name = btn_names[i];
-
-    if (i == 4) { kc = btn_mode[4] ? 0x2C : btn_keycodes[i]; name = btn_mode[4] ? "Space" : btn_names[i]; }
-    if (i == 5) { kc = btn_mode[5] ? 0x28 : btn_keycodes[i]; name = btn_mode[5] ? "Enter" : btn_names[i]; }
-
-    if (idx < 8) report[idx++] = kc;
+    if (!last_btn[i]) continue;
+    const char* name = (i >= 4 && btn_mode[i]) ? btn_labels_alt[i] : btn_labels[i];
+    uint8_t key = (i >= 4 && btn_mode[i]) ? kc_alt[i-4] : kc[i];
+    if (idx < 8) report[idx++] = key;
     if (buf[0]) strcat(buf, " + ");
     strcat(buf, name);
   }
 
+  static uint8_t prevReport[8] = {0};
   if (memcmp(report, prevReport, 8) != 0) {
     if (deviceConnected) {
       bool swap = false;
       for (int i = 0; i < 8; i++) {
-        if (report[i] != prevReport[i] && report[i] != 0 && prevReport[i] != 0) {
-          swap = true; break;
-        }
+        if (report[i] != prevReport[i] && report[i] != 0 && prevReport[i] != 0) { swap = true; break; }
       }
       if (swap) {
-        swapStep = 1;
-        lv_label_set_text(bt_btn_label, buf);
-        return;
+        uint8_t empty[8] = {0};
+        input->setValue(empty, 8); input->notify();
+        delay(5);
       }
-      input->setValue(report, 8);
-      input->notify();
+      input->setValue(report, 8); input->notify();
     }
     memcpy(prevReport, report, 8);
   }
 
-  if (swapStep == 2) {
-    swapStep = 0;
-    if (deviceConnected) {
-      input->setValue(report, 8);
-      input->notify();
-    }
-    memcpy(prevReport, report, 8);
+  if (strcmp(buf, btn_display) != 0) {
+    strcpy(btn_display, buf);
+    fill_rect(0, 96, 160, 32, BLACK);
+    if (buf[0]) draw_str_center(100, buf, WHITE, BLACK);
   }
-
-  lv_label_set_text(bt_btn_label, buf[0] ? buf : "");
 }
 
 void enter_app(int i) {
   switch (i) {
     case 0: bt_gamepad_init(); break;
     case 1:
-      in_app = true;
-      app_id = 2;
-      lv_obj_clean(lv_scr_act());
-      fill(0x0000);
+      in_app = true; app_id = 2;
+      fill_screen(BLACK);
       nes_emu_init();
       nes_emu_deinit();
-      update_menu_sel();
-      lv_refr_now(NULL);
+      show_menu();
       break;
   }
 }
 
 void show_menu() {
-  in_app = false;
-  app_id = -1;
-  lv_obj_clean(lv_scr_act());
-  lv_obj_set_style_bg_color(lv_scr_act(), lv_color_hex(0x000000), 0);
-
-  lv_obj_t* title = lv_label_create(lv_scr_act());
-  lv_label_set_text(title, "Select App");
-  lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 4);
-
-  const char* names[] = {"1. BT Gamepad", "2. NES Emulator"};
-  for (int i = 0; i < 2; i++) {
-    lv_obj_t* btn = lv_btn_create(lv_scr_act());
-    lv_obj_set_size(btn, 120, 28);
-    lv_obj_align(btn, LV_ALIGN_TOP_MID, 0, 30 + i * 34);
-    lv_obj_set_style_border_width(btn, i == sel ? 2 : 0, 0);
-    lv_obj_set_style_border_color(btn, lv_color_hex(0xFFFFFF), 0);
-    lv_obj_set_style_bg_color(btn, i == sel ? lv_color_hex(0x0044AA) : lv_color_hex(0x333333), 0);
-    lv_obj_t* lbl = lv_label_create(btn);
-    lv_label_set_text(lbl, names[i]);
-    lv_obj_align(lbl, LV_ALIGN_LEFT_MID, 8, 0);
-  }
+  in_app = false; app_id = -1;
+  fill_screen(BLACK);
+  draw_str_center(4, "Select App", WHITE, BLACK);
+  draw_menu_item(8, 36, 1, "BT Gamepad", sel == 0);
+  draw_menu_item(8, 66, 2, "NES Emulator", sel == 1);
 }
 
 void update_menu_sel() {
-  lv_obj_clean(lv_scr_act());
-  show_menu();
+  draw_menu_item(8, 36, 1, "BT Gamepad", sel == 0);
+  draw_menu_item(8, 66, 2, "NES Emulator", sel == 1);
 }
 
 void setup() {
@@ -291,49 +306,34 @@ void setup() {
   pinMode(2, INPUT_PULLUP); pinMode(13, INPUT_PULLUP);
   pinMode(27, INPUT_PULLUP); pinMode(35, INPUT);
   pinMode(34, INPUT); pinMode(12, INPUT_PULLUP);
-  lcd_init(); fill(0x0000);
-
-  lv_init();
-  lv_disp_draw_buf_init(&db, buf, NULL, 128*20);
-  lv_disp_drv_init(&drv);
-  drv.hor_res = 128; drv.ver_res = 160;
-  drv.sw_rotate = 1; drv.rotated = LV_DISP_ROT_270;
-  drv.flush_cb = flush; drv.draw_buf = &db;
-  lv_disp_drv_register(&drv);
-
+  lcd_init(); fill_screen(BLACK);
   sel = 0;
   show_menu();
 }
 
 void loop() {
-  static unsigned long t_menu = 0;
-  static unsigned long t_bt = 0;
+  static unsigned long t = 0;
   unsigned long n = millis();
 
   if (!in_app) {
-    if (n - t_menu > 200) {
+    if (n - t > 200) {
       bool up = digitalRead(2) == LOW;
       bool dn = digitalRead(13) == LOW;
       bool a = digitalRead(34) == LOW;
-
-      if (up || dn || a) t_menu = n;
-      if (up && sel > 0) { sel--; update_menu_sel(); lv_refr_now(NULL); }
-      if (dn && sel < 1) { sel++; update_menu_sel(); lv_refr_now(NULL); }
-      if (a) { enter_app(sel); lv_refr_now(NULL); }
+      if (up || dn || a) t = n;
+      if (up && sel > 0) { sel--; update_menu_sel(); }
+      if (dn && sel < 1) { sel++; update_menu_sel(); }
+      if (a) { enter_app(sel); }
     }
   } else {
-    if (app_id == 1 && n - t_bt > 50) {
-      t_bt = n;
-      bt_gamepad_loop();
-      lv_refr_now(NULL);
+    if (app_id == 1 && n - t > 50) {
+      t = n; bt_gamepad_loop();
     }
-    if ((app_id == 1 && !deviceConnected && digitalRead(12) == LOW)) {
-      if (app_id == 1) BLEDevice::deinit(false);
-      update_menu_sel();
-      lv_refr_now(NULL);
+    if (app_id == 1 && !deviceConnected && digitalRead(12) == LOW) {
+      BLEDevice::deinit(false);
+      show_menu();
     }
   }
 
-  lv_timer_handler();
   delay(5);
 }
