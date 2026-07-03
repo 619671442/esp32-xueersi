@@ -173,7 +173,7 @@ static bool initPlayback(int idx) {
     }
     int rcvbuf = 131072;
     setsockopt(tcpClient.fd(), SOL_SOCKET, SO_RCVBUF, &rcvbuf, sizeof(rcvbuf));
-    spi.setFrequency(80000000);
+    spi.setFrequency(54000000);
     rdPhase = 0; rdPos = 0; lastFrameT = millis();
     Serial.printf("[STREAM] Connected OK\n");
     return true;
