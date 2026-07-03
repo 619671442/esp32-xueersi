@@ -1,5 +1,4 @@
 #include <Arduino.h>
-#include <WiFi.h>
 #include "main.h"
 #include "lcd/lcd.h"
 #include "input/input.h"
@@ -21,7 +20,6 @@ void setup() {
 
 void loop() {
   static unsigned long t = 0;
-  static unsigned long icon_t = 0;
   unsigned long n = millis();
 
   if (!in_app) {
@@ -35,26 +33,10 @@ void loop() {
       if (a) { enter_app(sel); }
     }
   } else if (app_id >= 0 && app_id < MENU_ITEMS && menuItems[app_id].loop != nullptr) {
-    if (n - t > 50) {
+    if (n - t > 33) {
       t = n;
       menuItems[app_id].loop();
     }
-  }
-
-  if (n - icon_t > 500) {
-    icon_t = n;
-    uint16_t iconColor;
-    if (WiFi.status() == WL_CONNECTED) {
-      wifi_state = WIFI_STATE_STA;
-      iconColor = GREEN;
-    } else if (WiFi.getMode() == WIFI_MODE_AP || WiFi.getMode() == WIFI_MODE_APSTA) {
-      wifi_state = WIFI_STATE_AP;
-      iconColor = BLUE;
-    } else {
-      wifi_state = WIFI_STATE_OFF;
-      iconColor = GRAY;
-    }
-    draw_wifi_icon(148, 0, iconColor);
   }
 
   delay(5);

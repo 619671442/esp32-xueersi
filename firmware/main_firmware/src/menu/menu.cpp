@@ -7,6 +7,7 @@
 #include "../apps/sd_manager.h"
 #include "../apps/webserver_app.h"
 #include "../apps/wifi_manager.h"
+#include "../apps/streaming_player.h"
 
 int sel = 0;
 int scrollOffset = 0;
@@ -18,6 +19,7 @@ const MenuItem menuItems[] = {
   { "WiFi Manager",   wifi_manager_init, wifi_manager_loop },
   { "SD File Manager", sd_manager_init,   sd_manager_loop },
   { "WebServer",      webserver_init,    webserver_loop },
+  { "Streaming Player", streaming_player_init, streaming_player_loop },
 };
 const int MENU_ITEMS = sizeof(menuItems) / sizeof(menuItems[0]);
 
@@ -40,7 +42,6 @@ void show_menu() {
     drawItem(i, i);
   draw_str_center(98, "UP/DN:Sel A:Open", DKGRAY, BLACK);
   draw_str_center(114, "B:Back to menu", DKGRAY, BLACK);
-  draw_wifi_icon(148, 0, wifi_state == WIFI_STATE_STA ? GREEN : (wifi_state == WIFI_STATE_AP ? BLUE : GRAY));
 }
 
 void update_menu_sel() {

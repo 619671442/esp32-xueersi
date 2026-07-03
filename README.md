@@ -53,8 +53,8 @@
 
 ```
 firmware/main_firmware/src/
-├── main.h              # 全局常量（颜色、引脚定义、WiFi 状态）
-├── main.cpp            # 入口：setup + loop 调度
+├── main.h              # 全局常量（颜色、引脚定义）
+├── main.cpp            # 入口：setup + loop 调度（~30fps）
 ├── font_8x16.h         # 8x16 ASCII 字库
 ├── input/
 │   ├── input.h
@@ -64,23 +64,29 @@ firmware/main_firmware/src/
 │   └── lcd.cpp         # ST7735 SPI 驱动 + 绘图 API
 ├── menu/
 │   ├── menu.h
-│   └── menu.cpp        # 菜单系统（MenuItem 结构体数组）
+│   └── menu.cpp        # 菜单系统（MenuItem 结构体数组，5项）
 ├── apps/
 │   ├── bt_gamepad.*    # 蓝牙手柄（BLE HID）
 │   ├── wifi_manager.*  # WiFi 连接管理
 │   ├── sd_manager.*    # SD 卡文件浏览器
-│   └── webserver.*     # WebServer 管理页面
-└── webserver/
-    ├── webserver.h
-    └── webserver.cpp   # 网页服务器（SD 管理 + WiFi 密码管理）
+│   ├── webserver.*     # WebServer 管理页面
+│   └── streaming_player.*  # WiFi 视频流播放
+├── webserver/
+│   ├── webserver.h
+│   └── webserver.cpp   # 网页服务器（SD 管理 + WiFi 密码管理）
+└── other/stream_server/      # 视频流服务端
+    ├── server.py        # Python 推流服务器
+    ├── config.json      # 流配置
+    ├── Dockerfile
+    └── docker-compose.yml
 ```
 
 ### 菜单循环
 
-菜单通过 `MenuItem` 结构体数组定义，每个项包含 `label`、`init` 函数指针和 `loop` 函数指针。支持滚动显示（最多 3 项可见，共 4 项）。
+菜单通过 `MenuItem` 结构体数组定义，每个项包含 `label`、`init` 函数指针和 `loop` 函数指针。支持滚动显示（最多 3 项可见，共 5 项）。
 
 - ↑↓ 循环切换，**A 确认进入**，**B 返回菜单**
-- 右上角 WiFi 状态图标（灰=关闭 / 蓝=热点 / 绿=已连接）
+- 主循环以 ~30fps（33ms）调度当前 app 的 loop
 
 ## 应用列表
 
@@ -91,6 +97,7 @@ firmware/main_firmware/src/
 - 方向键 → 键盘方向键（UP/DOWN/LEFT/RIGHT）
 - A/B → 键盘 A/B
 - **LEFT+RIGHT 长按 1 秒**：切换 A/B 键模式（A→Space, B→Enter）
+- **B 键退出**返回菜单
 
 ### 2. WiFi Manager — WiFi 管理
 
@@ -110,11 +117,32 @@ firmware/main_firmware/src/
 - **SD Card Manager**：浏览/上传/下载/删除 SD 卡文件，创建目录
 - **WiFi Password Manager**：保存/忘记 WiFi 密码（用于 WiFi Manager 应用）
 
+### 5. Streaming Player — 视频流播放
+
+通过 WiFi 从远程服务器接收实时视频流并显示。
+
+- 从 `snym.eu.org:9990` 获取流列表
+- 选择流后通过 TCP 连接接收帧数据（4 字节长度头 + RGB565 帧）
+- 帧率由服务端控制（默认 5fps），SPI 自动升频到 54MHz
+- **需先连接 WiFi** 才能使用
+
+### 流媒体服务端部署
+
+```bash
+cd other/stream_server
+
+# 编辑 config.json 配置流（视频源路径等）
+# 然后启动
+docker compose up -d
+```
+
+服务端使用 FFmpeg 读取视频源，将画面缩放裁剪为 160×128 像素，按行优先编码 RGB565 后转列优先发送给客户端。
+
 ## 开发环境
 
 - **IDE**: VSCode + PlatformIO
 - **框架**: Arduino-ESP32
-- **屏幕驱动**: 直接 SPI（CS=5, DC=4, MOSI=23, SCLK=18, 40MHz）
+- **屏幕驱动**: 直接 SPI（CS=5, DC=4, MOSI=23, SCLK=18, 40MHz / 流媒体 54MHz）
 
 ## 使用方式
 

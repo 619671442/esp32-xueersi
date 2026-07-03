@@ -40,7 +40,6 @@ static void drawModeSelect() {
     draw_str(8, y, buf, active ? WHITE : GRAY, BLACK);
   }
   draw_str_center(110, "B:Back to menu", DKGRAY, BLACK);
-  draw_wifi_icon(148, 0, wifi_state == WIFI_STATE_STA ? GREEN : (wifi_state == WIFI_STATE_AP ? BLUE : GRAY));
 }
 
 static void showMsg(const char* l1, const char* l2, const char* l3) {
@@ -50,7 +49,7 @@ static void showMsg(const char* l1, const char* l2, const char* l3) {
   draw_str_center(52, msgLine2, GRAY, BLACK);
   draw_str_center(74, msgLine3, GRAY, BLACK);
   draw_str_center(110, "A:Continue  B:Menu", DKGRAY, BLACK);
-  draw_wifi_icon(148, 0, wifi_state == WIFI_STATE_STA ? GREEN : (wifi_state == WIFI_STATE_AP ? BLUE : GRAY));
+  
 }
 
 static void drawList() {
@@ -61,7 +60,7 @@ static void drawList() {
   if (n == 0) {
     draw_str_center(50, "No networks found", GRAY, BLACK);
     draw_str_center(98, "A:Rescan  B:Back", DKGRAY, BLACK);
-    draw_wifi_icon(148, 0, wifi_state == WIFI_STATE_STA ? GREEN : (wifi_state == WIFI_STATE_AP ? BLUE : GRAY));
+    
     return;
   }
 
@@ -76,7 +75,7 @@ static void drawList() {
     draw_str(8, y, buf, isConnected ? GREEN : (active ? WHITE : GRAY), BLACK);
   }
   draw_str_center(98, "UP/DN:Sel A:Connect B:Back", DKGRAY, BLACK);
-  draw_wifi_icon(148, 0, wifi_state == WIFI_STATE_STA ? GREEN : (wifi_state == WIFI_STATE_AP ? BLUE : GRAY));
+  
 }
 
 static void updateSel() {
@@ -102,7 +101,7 @@ static void doConnect() {
   draw_str_center(40, "Connecting...", WHITE, BLACK);
   draw_str_center(56, connSSID.c_str(), GRAY, BLACK);
   draw_str_center(98, "B:Cancel", DKGRAY, BLACK);
-  draw_wifi_icon(148, 0, wifi_state == WIFI_STATE_STA ? GREEN : (wifi_state == WIFI_STATE_AP ? BLUE : GRAY));
+  
 }
 
 static void startConnect(int i) {
@@ -126,8 +125,7 @@ static void startConnect(int i) {
     draw_str_center(74, "Go to WebServer", GRAY, BLACK);
     draw_str_center(90, "to set password", GRAY, BLACK);
     draw_str_center(110, "A:OK  B:Back to menu", DKGRAY, BLACK);
-    draw_wifi_icon(148, 0, wifi_state == WIFI_STATE_STA ? GREEN : (wifi_state == WIFI_STATE_AP ? BLUE : GRAY));
-  }
+}
 }
 
 void wifi_manager_init() {
@@ -152,7 +150,7 @@ void wifi_manager_loop() {
       snprintf(buf, sizeof(buf), "IP: %s", WiFi.localIP().toString().c_str());
       draw_str_center(44, buf, WHITE, BLACK);
       draw_str_center(98, "A:List  B:Exit", DKGRAY, BLACK);
-      draw_wifi_icon(148, 0, GREEN);
+      
     }
     else if (n - connStart > 10000) {
       WiFi.disconnect();
@@ -162,7 +160,7 @@ void wifi_manager_loop() {
       draw_str_center(40, "Connection failed", WHITE, BLACK);
       draw_str(0, 60, connSSID.c_str(), GRAY, BLACK);
       draw_str_center(98, "A:Retry  B:Back to menu", DKGRAY, BLACK);
-      draw_wifi_icon(148, 0, GRAY);
+      
     }
     if (n - lastBtnT < 200) return;
     bool b = digitalRead(12) == LOW;
@@ -205,7 +203,7 @@ void wifi_manager_loop() {
       } else {
         fill_screen(BLACK);
         draw_str_center(40, "Scanning WiFi...", WHITE, BLACK);
-        draw_wifi_icon(148, 0, wifi_state == WIFI_STATE_STA ? GREEN : (wifi_state == WIFI_STATE_AP ? BLUE : GRAY));
+        
         WiFi.mode(WIFI_MODE_STA);
         WiFi.disconnect();
         delay(100);
@@ -246,7 +244,7 @@ void wifi_manager_loop() {
         fill_screen(BLACK);
         draw_str_center(40, "A:Disconnect WiFi", WHITE, BLACK);
         draw_str_center(64, "B:Exit to menu", GRAY, BLACK);
-        draw_wifi_icon(148, 0, GREEN);
+        
       } else {
         show_menu();
       }

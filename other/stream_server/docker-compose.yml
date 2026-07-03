@@ -1,0 +1,10 @@
+services:
+  stream-server:
+    build: .
+    container_name: xueersi-stream-server
+    ports:
+      - "9990:9990"
+      - "9991-9993:9991-9993"
+    volumes:
+      - ./config.json:/app/config.json:ro
+    restart: unless-stopped

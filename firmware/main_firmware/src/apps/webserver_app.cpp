@@ -28,7 +28,7 @@ static void drawStatus() {
     draw_str(0, 84, "Open browser to", GRAY, BLACK);
     draw_str_center(100, WiFi.localIP().toString().c_str(), WHITE, BLACK);
   }
-  draw_wifi_icon(148, 0, wifi_state == WIFI_STATE_STA ? GREEN : (wifi_state == WIFI_STATE_AP ? BLUE : GRAY));
+  draw_wifi_icon(158, 0, wifi_state == WIFI_STATE_STA ? GREEN : (wifi_state == WIFI_STATE_AP ? BLUE : GRAY));
 }
 
 void webserver_init() {
@@ -37,7 +37,7 @@ void webserver_init() {
 
   fill_screen(BLACK);
   draw_str_center(40, "Starting WebServer...", WHITE, BLACK);
-  draw_wifi_icon(148, 0, wifi_state == WIFI_STATE_STA ? GREEN : (wifi_state == WIFI_STATE_AP ? BLUE : GRAY));
+  draw_wifi_icon(158, 0, wifi_state == WIFI_STATE_STA ? GREEN : (wifi_state == WIFI_STATE_AP ? BLUE : GRAY));
 
   apStartedByUs = false;
   if (wifi_state == WIFI_STATE_OFF) {
