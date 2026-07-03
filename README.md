@@ -52,33 +52,35 @@
 ### 模块化结构
 
 ```
-firmware/main_firmware/src/
-├── main.h              # 全局常量（颜色、引脚定义）
-├── main.cpp            # 入口：setup + loop 调度（~30fps）
-├── font_8x16.h         # 8x16 ASCII 字库
-├── input/
-│   ├── input.h
-│   └── input.cpp       # 按键输入处理
-├── lcd/
-│   ├── lcd.h
-│   └── lcd.cpp         # ST7735 SPI 驱动 + 绘图 API
-├── menu/
-│   ├── menu.h
-│   └── menu.cpp        # 菜单系统（MenuItem 结构体数组，5项）
-├── apps/
-│   ├── bt_gamepad.*    # 蓝牙手柄（BLE HID）
-│   ├── wifi_manager.*  # WiFi 连接管理
-│   ├── sd_manager.*    # SD 卡文件浏览器
-│   ├── webserver.*     # WebServer 管理页面
-│   └── streaming_player.*  # WiFi 视频流播放
-├── webserver/
-│   ├── webserver.h
-│   └── webserver.cpp   # 网页服务器（SD 管理 + WiFi 密码管理）
-└── other/stream_server/      # 视频流服务端
-    ├── server.py        # Python 推流服务器
-    ├── config.json      # 流配置
-    ├── Dockerfile
-    └── docker-compose.yml
+firmware/main_firmware/
+├── sdkconfig.defaults    # TCP 窗口优化（32768）
+└── src/
+    ├── main.h              # 全局常量（颜色、引脚定义）
+    ├── main.cpp            # 入口：setup + loop 调度（~30fps）
+    ├── font_8x16.h         # 8x16 ASCII 字库
+    ├── input/
+    │   ├── input.h
+    │   └── input.cpp       # 按键输入处理
+    ├── lcd/
+    │   ├── lcd.h
+    │   └── lcd.cpp         # ST7735 SPI 驱动 + 绘图 API
+    ├── menu/
+    │   ├── menu.h
+    │   └── menu.cpp        # 菜单系统（MenuItem 结构体数组，5项）
+    ├── apps/
+    │   ├── bt_gamepad.*    # 蓝牙手柄（BLE HID）
+    │   ├── wifi_manager.*  # WiFi 连接管理
+    │   ├── sd_manager.*    # SD 卡文件浏览器
+    │   ├── webserver.*     # WebServer 管理页面
+    │   └── streaming_player.*  # WiFi 视频流播放
+    ├── webserver/
+    │   ├── webserver.h
+    │   └── webserver.cpp   # 网页服务器（SD 管理 + WiFi 密码管理）
+    └── other/stream_server/      # 视频流服务端
+        ├── server.py        # Python 推流服务器
+        ├── config.json      # 流配置
+        ├── Dockerfile
+        └── docker-compose.yml
 ```
 
 ### 菜单循环
@@ -121,9 +123,10 @@ firmware/main_firmware/src/
 
 通过 WiFi 从远程服务器接收实时视频流并显示。
 
-- 从 `snym.eu.org:9990` 获取流列表
-- 选择流后通过 TCP 连接接收帧数据（4 字节长度头 + RGB565 帧）
-- 帧率由服务端控制（默认 5fps），SPI 自动升频到 54MHz
+- 从 `152.69.229.91:9990` 获取流列表（JSON 格式，含 `name`/`port`/`online` 字段）
+- 仅显示 `online: true` 的流，选择后通过 TCP 连接接收帧数据（4 字节长度头 + RGB565 帧）
+- 帧率由服务端控制（默认 30fps），SPI 自动升频到 54MHz
+- 5 秒无帧超时自动断开，返回流列表
 - **需先连接 WiFi** 才能使用
 
 ### 流媒体服务端部署

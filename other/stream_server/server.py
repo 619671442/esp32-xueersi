@@ -26,6 +26,7 @@ class StreamState:
         self.latest_frame = None
         self.lock = threading.Lock()
         self.ref_count = 0
+        self.ref_lock = threading.Lock()
         self.frame_count = 0
 
 streams = [StreamState(s) for s in STREAMS]
@@ -74,8 +75,8 @@ def start_stream(stream):
             stream.proc.kill()
             stream.proc.wait(timeout=2)
         stream.proc = None
-        stream.latest_frame = None
-        stream.ref_count = 0
+        with stream.lock:
+            stream.latest_frame = None
     threading.Thread(target=reader, daemon=True).start()
 
 def stop_stream(stream):
@@ -134,31 +135,41 @@ def tcp_server(idx):
     while True:
         conn, addr = s.accept()
         print(f"  [+] {stream.cfg['name']} client from {addr[0]}")
-        stream.ref_count += 1
-        if stream.ref_count == 1:
+        with stream.ref_lock:
+            stream.ref_count += 1
+            need_start = (stream.ref_count == 1)
+        if need_start:
             print(f"  [*] FFmpeg start: {stream.cfg['name']}")
             start_stream(stream)
         def handler(conn, addr, stream):
             sent = 0
+            first_frame_timeout = time.time() + 8
             try:
                 conn.settimeout(5)
                 while True:
                     with stream.lock:
                         frame = stream.latest_frame
                     if frame:
+                        if sent == 0:
+                            print(f"[TCP:{stream.cfg['name']}] First frame received, sending to {addr[0]}")
                         pkt = struct.pack(">I", len(frame)) + frame
                         conn.sendall(pkt)
                         sent += 1
                         if sent <= 3 or sent % 30 == 0:
                             print(f"[TCP:{stream.cfg['name']}] Sent frame #{sent} to {addr[0]} ({len(frame)} bytes)")
+                    elif sent == 0 and time.time() > first_frame_timeout:
+                        print(f"[TCP:{stream.cfg['name']}] Timeout waiting for first frame, disconnecting {addr[0]}")
+                        break
                     time.sleep(1.0 / FPS * 0.9)
             except Exception as e:
                 print(f"[TCP:{stream.cfg['name']}] Client {addr[0]} disconnected: {e}")
             finally:
                 conn.close()
-                stream.ref_count -= 1
+                with stream.ref_lock:
+                    stream.ref_count -= 1
+                    should_stop = (stream.ref_count == 0)
                 print(f"[TCP:{stream.cfg['name']}] {addr[0]} left ({stream.ref_count} remain, sent {sent} frames)")
-                if stream.ref_count == 0:
+                if should_stop:
                     print(f"  [*] FFmpeg stop: {stream.cfg['name']}")
                     stop_stream(stream)
         threading.Thread(target=handler, args=(conn, addr, stream), daemon=True).start()

@@ -7,7 +7,7 @@
 #include "../menu/menu.h"
 #include "streaming_player.h"
 
-#define SERVER_HOST "snym.eu.org"
+#define SERVER_HOST "152.69.229.91"
 #define HTTP_PORT 9990
 #define TCP_BASE 9991
 #define FRAME_SIZE (160 * 128 * 2)
@@ -30,6 +30,7 @@ static unsigned long lastBtnT = 0;
 static int rdPhase = 0;
 static int rdPos = 0;
 static uint8_t rawBuf[4 + FRAME_SIZE];
+static unsigned long lastFrameT = 0;
 
 static void clearRow(int y) {
     fill_rect(0, y, 160, 16, BLACK);
@@ -50,7 +51,7 @@ static void drawList() {
     draw_str_center(4, "Streaming Player", WHITE, BLACK);
     int n = streamCount;
     if (n == 0) {
-        draw_str_center(50, "No streams available", GRAY, BLACK);
+        draw_str_center(50, "No streams online", GRAY, BLACK);
         draw_str_center(98, "B:Back to menu", DKGRAY, BLACK);
         return;
     }
@@ -86,6 +87,7 @@ static bool parseStreamList(const char* json) {
         p++;
         char name[32] = {0};
         int port = 0;
+        bool online = true;
         while (*p && *p != '}') {
             while (*p && *p <= ' ') p++;
             if (!*p || *p == '}') break;
@@ -110,10 +112,15 @@ static bool parseStreamList(const char* json) {
                     strncpy(name, val, 31);
                     name[31] = 0;
                 }
-            } else if (*p == 't') {
-                if (strncmp(p, "true", 4) == 0) p += 4;
-            } else if (*p == 'f') {
-                if (strncmp(p, "false", 5) == 0) p += 5;
+            } else if (*p == 't' || *p == 'f') {
+                if (strcmp(key, "online") == 0) {
+                    online = (*p == 't');
+                }
+                if (*p == 't') {
+                    if (strncmp(p, "true", 4) == 0) p += 4;
+                } else {
+                    if (strncmp(p, "false", 5) == 0) p += 5;
+                }
             } else if (*p >= '0' && *p <= '9') {
                 if (strcmp(key, "port") == 0) {
                     port = 0;
@@ -166,8 +173,8 @@ static bool initPlayback(int idx) {
     }
     int rcvbuf = 131072;
     setsockopt(tcpClient.fd(), SOL_SOCKET, SO_RCVBUF, &rcvbuf, sizeof(rcvbuf));
-    spi.setFrequency(54000000);
-    rdPhase = 0; rdPos = 0;
+    spi.setFrequency(80000000);
+    rdPhase = 0; rdPos = 0; lastFrameT = millis();
     Serial.printf("[STREAM] Connected OK\n");
     return true;
 }
@@ -236,30 +243,32 @@ void streaming_player_loop() {
             drawList();
             return;
         }
-        if (rdPhase == 0) {
-            int want = 4 - rdPos;
-            if (tcpClient.available() < want) return;
-            int r = tcpClient.read(rawBuf + rdPos, want);
-            if (r <= 0) { rdPhase = 0; rdPos = 0; return; }
+        bool gotData = false;
+        while (true) {
+            int bufOff = (rdPhase == 0) ? rdPos : (4 + rdPos);
+            int want = (rdPhase == 0) ? (4 - rdPos) : (FRAME_SIZE - rdPos);
+            int r = tcpClient.read(rawBuf + bufOff, want);
+            if (r <= 0) break;
             rdPos += r;
-            if (rdPos >= 4) {
+            if (rdPhase == 0 && rdPos >= 4) {
                 int32_t len = ((int32_t)rawBuf[0] << 24) |
                               ((int32_t)rawBuf[1] << 16) |
                               ((int32_t)rawBuf[2] << 8) |
                               rawBuf[3];
-                if (len != FRAME_SIZE) { rdPhase = 0; rdPos = 0; return; }
+                if (len != FRAME_SIZE) { rdPhase = 0; rdPos = 0; break; }
                 rdPhase = 1; rdPos = 0;
-            }
-        } else {
-            int want = FRAME_SIZE - rdPos;
-            if (tcpClient.available() < want) return;
-            int r = tcpClient.read(rawBuf + 4 + rdPos, want);
-            if (r <= 0) { rdPhase = 0; rdPos = 0; return; }
-            rdPos += r;
-            if (rdPos >= FRAME_SIZE) {
+            } else if (rdPhase == 1 && rdPos >= FRAME_SIZE) {
                 spiWriteFrame(rawBuf + 4);
                 rdPhase = 0; rdPos = 0;
+                lastFrameT = n;
+                gotData = true;
             }
+        }
+        if (!gotData && n - lastFrameT > 5000) {
+            Serial.printf("[STREAM] RX timeout, disconnecting\n");
+            tcpClient.stop();
+            state = ST_LIST;
+            drawList();
         }
         return;
     }

@@ -33,7 +33,7 @@ void loop() {
       if (a) { enter_app(sel); }
     }
   } else if (app_id >= 0 && app_id < MENU_ITEMS && menuItems[app_id].loop != nullptr) {
-    if (n - t > 33) {
+    if (n - t > 33 || app_id == 4) {
       t = n;
       menuItems[app_id].loop();
     }
